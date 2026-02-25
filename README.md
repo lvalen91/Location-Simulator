@@ -1,4 +1,6 @@
-# Location Simulator
+# Recreation of [Location Simulator by Schlaubischlump](https://github.com/Schlaubischlump/LocationSimulator)
+
+#3 Location Simulator
 
 A native macOS app for simulating GPS locations on USB-connected iPhones (iOS 17+). Built with SwiftUI and MapKit, following Apple Maps design language.
 
