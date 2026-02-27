@@ -22,13 +22,24 @@ struct RouteResultsPanel: View {
                 )
             }
 
-            // Save route button
-            if appState.toCoordinate != nil {
-                Button(action: { appState.saveCurrentRoute() }) {
-                    Label("Save Route", systemImage: "star")
+            // Action row
+            HStack(spacing: 12) {
+                if appState.toCoordinate != nil {
+                    Button(action: { appState.saveCurrentRoute() }) {
+                        Label("Save Route", systemImage: "star")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.blue)
+                    .font(.callout)
+                }
+
+                Spacer()
+
+                Button(action: { appState.clearSearch() }) {
+                    Label("Clear", systemImage: "xmark.circle")
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.blue)
+                .foregroundStyle(.red)
                 .font(.callout)
             }
         }

@@ -64,11 +64,15 @@ struct LocationSimulatorApp: App {
 
                 Divider()
 
-                ForEach(TransportMode.allCases) { mode in
-                    Button(mode.displayName) {
-                        appState.spoofing.transportMode = mode
-                    }
+                Button("Increase Speed") {
+                    appState.spoofing.speedKmh = min(200, appState.spoofing.speedKmh + 10)
                 }
+                .keyboardShortcut("+", modifiers: .command)
+
+                Button("Decrease Speed") {
+                    appState.spoofing.speedKmh = max(1, appState.spoofing.speedKmh - 10)
+                }
+                .keyboardShortcut("-", modifiers: .command)
             }
         }
     }

@@ -52,6 +52,12 @@ final class AppState {
     var showingSidebar = true
     var statusMessage: String?
 
+    /// Display speed in imperial (mph) when true, metric (km/h) when false.
+    var useImperial: Bool = UserDefaults.standard.bool(forKey: "useImperial") {
+        didSet { UserDefaults.standard.set(useImperial, forKey: "useImperial") }
+    }
+
+
     private static let savedRoutesKey = "savedRoutes"
     private static let recentRoutesKey = "recentRoutes"
     private static let maxRecent = 20
@@ -156,7 +162,8 @@ final class AppState {
         }
 
         statusMessage = "Calculating routes..."
-        from.calculateAllRoutes(to: to, transportType: spoofing.transportMode.mkTransportType) { [weak self] routes in
+        from.calculateAllRoutes(to: to, transportType: spoofing.transportMode.mkTransportType,
+                               ) { [weak self] routes in
             self?.calculatedRoutes = routes
             self?.selectedRouteIndex = routes.isEmpty ? nil : 0
             self?.statusMessage = routes.isEmpty ? "No routes found" : nil

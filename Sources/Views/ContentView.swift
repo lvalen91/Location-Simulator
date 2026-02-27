@@ -94,27 +94,6 @@ struct ContentView: View {
             }
 
             ToolbarItem(placement: .automatic) {
-                HStack(spacing: 2) {
-                    ForEach(TransportMode.allCases) { mode in
-                        Button(action: {
-                            appState.spoofing.transportMode = mode
-                            if appState.toCoordinate != nil { appState.calculateRoutes() }
-                        }) {
-                            Image(systemName: mode.systemImage)
-                                .frame(width: 28, height: 28)
-                                .background(
-                                    appState.spoofing.transportMode == mode
-                                        ? Circle().fill(.white.opacity(0.2))
-                                        : Circle().fill(.clear)
-                                )
-                        }
-                        .buttonStyle(.borderless)
-                        .help(mode.displayName)
-                    }
-                }
-            }
-
-            ToolbarItem(placement: .automatic) {
                 ToolbarSpeedControl(appState: appState)
                     .help("Simulated movement speed")
             }

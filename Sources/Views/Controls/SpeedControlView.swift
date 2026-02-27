@@ -5,36 +5,26 @@ import SwiftUI
 struct SpeedControlView: View {
     @Bindable var appState: AppState
 
-    private var speedBinding: Binding<Double> {
-        Binding(
-            get: { appState.spoofing.speedKmh },
-            set: { appState.spoofing.speedKmh = $0 }
-        )
-    }
-
-    private var maxSpeed: Double {
-        switch appState.spoofing.transportMode {
-        case .walking: return 15
-        case .cycling: return 50
-        case .driving: return 200
-        }
-    }
-
-    private var stepSize: Double {
-        switch appState.spoofing.transportMode {
-        case .walking: return 1
-        case .cycling: return 5
-        case .driving: return 10
-        }
-    }
+    private let maxSpeed: Double = 200
+    private let stepSize: Double = 10
 
     private var fraction: Double {
         (appState.spoofing.speedKmh - 1) / (maxSpeed - 1)
     }
 
+    private var displaySpeed: Double {
+        appState.useImperial
+            ? appState.spoofing.speedKmh / 1.60934
+            : appState.spoofing.speedKmh
+    }
+
+    private var unitLabel: String {
+        appState.useImperial ? "mph" : "km/h"
+    }
+
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: appState.spoofing.transportMode.systemImage)
+            Image(systemName: "car")
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
@@ -80,10 +70,10 @@ struct SpeedControlView: View {
             }
             .buttonStyle(.plain)
 
-            Text(String(format: "%.0f km/h", appState.spoofing.speedKmh))
+            Text(String(format: "%.0f %@", displaySpeed, unitLabel))
                 .monospacedDigit()
                 .font(.system(.callout, design: .rounded, weight: .medium))
-                .frame(width: 70, alignment: .trailing)
+                .frame(width: 80, alignment: .trailing)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -92,54 +82,137 @@ struct SpeedControlView: View {
     }
 }
 
-/// Compact speed display for the toolbar — uses minus/plus buttons instead of a slider
-/// to avoid the ugly white track on Liquid Glass toolbars.
+/// Compact speed display for the toolbar — click the speed value to open
+/// a popover with manual entry, bigger +/- buttons, and unit toggle.
 struct ToolbarSpeedControl: View {
     @Bindable var appState: AppState
+    @State private var showingPopover = false
 
-    private var maxSpeed: Double {
-        switch appState.spoofing.transportMode {
-        case .walking: return 15
-        case .cycling: return 50
-        case .driving: return 200
-        }
+    private let maxSpeed: Double = 200
+    private let stepSize: Double = 10
+
+    private var displaySpeed: Double {
+        appState.useImperial
+            ? appState.spoofing.speedKmh / 1.60934
+            : appState.spoofing.speedKmh
     }
 
-    private var stepSize: Double {
-        switch appState.spoofing.transportMode {
-        case .walking: return 1
-        case .cycling: return 5
-        case .driving: return 10
-        }
+    private var unitLabel: String {
+        appState.useImperial ? "mph" : "km/h"
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            Button(action: {
-                appState.spoofing.speedKmh = max(1, appState.spoofing.speedKmh - stepSize)
-            }) {
-                Image(systemName: "minus")
-                    .font(.system(size: 11, weight: .semibold))
+        Button(action: { showingPopover.toggle() }) {
+            HStack(spacing: 4) {
+                Image(systemName: "speedometer")
+                    .font(.system(size: 12))
+                Text(String(format: "%.0f", displaySpeed))
+                    .monospacedDigit()
+                    .font(.system(.body, design: .rounded, weight: .medium))
+                Text(unitLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .buttonStyle(.borderless)
-
-            Text(String(format: "%.0f", appState.spoofing.speedKmh))
-                .monospacedDigit()
-                .font(.system(.body, design: .rounded, weight: .medium))
-                .frame(minWidth: 36, alignment: .center)
-
-            Button(action: {
-                appState.spoofing.speedKmh = min(maxSpeed, appState.spoofing.speedKmh + stepSize)
-            }) {
-                Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .semibold))
-            }
-            .buttonStyle(.borderless)
-
-            Text("km/h")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
         }
-        .padding(.horizontal, 6)
+        .buttonStyle(.borderless)
+        .popover(isPresented: $showingPopover, arrowEdge: .bottom) {
+            SpeedPopover(appState: appState, maxSpeed: maxSpeed, stepSize: stepSize)
+        }
+    }
+}
+
+/// Popover content for speed adjustment with manual entry, +/- buttons, and unit toggle.
+private struct SpeedPopover: View {
+    @Bindable var appState: AppState
+    let maxSpeed: Double
+    let stepSize: Double
+
+    @State private var textValue: String = ""
+    @FocusState private var isTextFieldFocused: Bool
+
+    private var displaySpeed: Double {
+        appState.useImperial
+            ? appState.spoofing.speedKmh / 1.60934
+            : appState.spoofing.speedKmh
+    }
+
+    private var unitLabel: String {
+        appState.useImperial ? "mph" : "km/h"
+    }
+
+    /// Step size converted to display units
+    private var displayStep: Double {
+        appState.useImperial ? stepSize / 1.60934 : stepSize
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            // Speed display with +/- buttons
+            HStack(spacing: 16) {
+                Button(action: decrementSpeed) {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.system(size: 28))
+                        .symbolRenderingMode(.hierarchical)
+                }
+                .buttonStyle(.plain)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+
+                // Editable speed field
+                TextField("", text: $textValue)
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.center)
+                    .monospacedDigit()
+                    .font(.system(size: 32, weight: .semibold, design: .rounded))
+                    .frame(width: 80)
+                    .focused($isTextFieldFocused)
+                    .onSubmit { commitTextValue() }
+
+                Button(action: incrementSpeed) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 28))
+                        .symbolRenderingMode(.hierarchical)
+                }
+                .buttonStyle(.plain)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+            }
+
+            // Unit toggle
+            Picker("Unit", selection: $appState.useImperial) {
+                Text("km/h").tag(false)
+                Text("mph").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 160)
+        }
+        .padding(16)
+        .frame(width: 220)
+        .onAppear { syncTextField() }
+        .onChange(of: appState.spoofing.speedKmh) { _, _ in syncTextField() }
+        .onChange(of: appState.useImperial) { _, _ in syncTextField() }
+    }
+
+    private func syncTextField() {
+        textValue = String(format: "%.0f", displaySpeed)
+    }
+
+    private func commitTextValue() {
+        guard let entered = Double(textValue) else {
+            syncTextField()
+            return
+        }
+        let kmh = appState.useImperial ? entered * 1.60934 : entered
+        appState.spoofing.speedKmh = min(maxSpeed, max(1, kmh)).rounded()
+        syncTextField()
+    }
+
+    private func decrementSpeed() {
+        appState.spoofing.speedKmh = max(1, appState.spoofing.speedKmh - stepSize)
+    }
+
+    private func incrementSpeed() {
+        appState.spoofing.speedKmh = min(maxSpeed, appState.spoofing.speedKmh + stepSize)
     }
 }
