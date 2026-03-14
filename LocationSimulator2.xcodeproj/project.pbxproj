@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DA1234560000000000000001 /* location_daemon.py in Resources */ = {isa = PBXBuildFile; fileRef = DA1234560000000000000002 /* location_daemon.py */; };
 		0F1944D2046E0F073619C027 /* RouteResultsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C5CC2B5C2889F7520828C5A /* RouteResultsPanel.swift */; };
 		2CC64D4398A2361F7F31305B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E8A2861383C804154EDE98E /* ContentView.swift */; };
 		2F0747369A70DA4D5CE774F0 /* LocationSimulatorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3FD380D9F085CB9109599F0 /* LocationSimulatorApp.swift */; };
@@ -40,6 +41,7 @@
 		B6D4CE3125729F03D3D8F93A /* SpeedControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedControlView.swift; sourceTree = "<group>"; };
 		CBD75B930DB42A4FA558C721 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		DEDC62A6242B66918990741C /* SearchCompleterManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchCompleterManager.swift; sourceTree = "<group>"; };
+		DA1234560000000000000002 /* location_daemon.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = location_daemon.py; path = Resources/location_daemon.py; sourceTree = "<group>"; };
 		EABFA92F533A8F4CF25AE170 /* LocationSimulator2.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LocationSimulator2.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -152,10 +154,19 @@
 			path = Search;
 			sourceTree = "<group>";
 		};
+		DA1234560000000000000003 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				DA1234560000000000000002 /* location_daemon.py */,
+			);
+			name = Resources;
+			sourceTree = "<group>";
+		};
 		E33C945EA52671733149BFF7 = {
 			isa = PBXGroup;
 			children = (
 				90F49ABDBA2B7CDABF96D0DB /* Sources */,
+				DA1234560000000000000003 /* Resources */,
 				555B3CEC3BE6804108CC0B4C /* Products */,
 			);
 			sourceTree = "<group>";
@@ -178,6 +189,7 @@
 			buildConfigurationList = 7E0F77E29EE5C93D06647746 /* Build configuration list for PBXNativeTarget "LocationSimulator2" */;
 			buildPhases = (
 				993CF4D00F27F27ECCD9F93A /* Sources */,
+				DA1234560000000000000004 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -217,6 +229,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		DA1234560000000000000004 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DA1234560000000000000001 /* location_daemon.py in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		993CF4D00F27F27ECCD9F93A /* Sources */ = {
