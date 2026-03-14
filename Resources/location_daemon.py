@@ -27,7 +27,7 @@ import urllib.request
 from pathlib import Path
 
 from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
-from pymobiledevice3.services.dvt.dvt_secure_socket_proxy import DvtSecureSocketProxyService
+from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider
 from pymobiledevice3.services.dvt.instruments.location_simulation import LocationSimulation
 
 TUNNEL_FILE = "/tmp/pymobiledevice3_tunnel.txt"
@@ -90,8 +90,7 @@ async def run_daemon(tunnel_path, udid=None):
 
     try:
         async with RemoteServiceDiscoveryService(tunnel_addr) as rsd:
-            with DvtSecureSocketProxyService(rsd) as dvt:
-                loc_sim = LocationSimulation(dvt)
+            async with DvtProvider(rsd) as dvt, LocationSimulation(dvt) as loc_sim:
                 respond("READY")
 
                 for line in sys.stdin:
@@ -106,7 +105,7 @@ async def run_daemon(tunnel_path, udid=None):
                         try:
                             lat = float(parts[1])
                             lon = float(parts[2])
-                            loc_sim.set(lat, lon)
+                            await loc_sim.set(lat, lon)
                             respond("OK")
                         except (ValueError, IndexError) as e:
                             respond(f"ERROR invalid coords: {e}")
@@ -115,7 +114,7 @@ async def run_daemon(tunnel_path, udid=None):
 
                     elif cmd == "CLEAR":
                         try:
-                            loc_sim.clear()
+                            await loc_sim.clear()
                             respond("OK")
                         except Exception as e:
                             respond(f"ERROR clear failed: {e}")
