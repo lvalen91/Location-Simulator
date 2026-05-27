@@ -90,7 +90,7 @@ struct ContentView: View {
                 Button(action: { appState.scanForDevices() }) {
                     Label("Scan", systemImage: "antenna.radiowaves.left.and.right")
                 }
-                .help("Scan for USB-connected iOS devices")
+                .help("Scan for iOS devices (USB and Wi-Fi)")
             }
 
             ToolbarItem(placement: .automatic) {

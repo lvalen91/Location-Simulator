@@ -17,6 +17,10 @@ Usage:
 Tunnel discovery order:
   1. Query tunneld HTTP API at http://127.0.0.1:49151/ (always fresh)
   2. Fall back to tunnel_file if tunneld is not running
+
+On connect, the Developer Disk Image is auto-mounted if needed (the
+location-simulation service only exists once it is mounted). This
+requires Developer Mode to be enabled on the device.
 """
 
 import asyncio
@@ -29,6 +33,11 @@ from pathlib import Path
 from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
 from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider
 from pymobiledevice3.services.dvt.instruments.location_simulation import LocationSimulation
+from pymobiledevice3.services.mobile_image_mounter import (
+    auto_mount,
+    AlreadyMountedError,
+    DeveloperModeIsNotEnabledError,
+)
 
 TUNNEL_FILE = "/tmp/pymobiledevice3_tunnel.txt"
 TUNNELD_URL = "http://127.0.0.1:49151/"
@@ -77,6 +86,31 @@ def respond(msg):
     sys.stdout.flush()
 
 
+async def ensure_ddi_mounted(tunnel_addr):
+    """Mount the Developer Disk Image if it isn't already.
+
+    The location-simulation service (com.apple.instruments.dtservicehub)
+    only exists once the DDI is mounted. auto_mount() downloads the
+    personalized image on first use and caches it for later runs.
+
+    Returns None on success, or an error string on failure.
+    """
+    try:
+        async with RemoteServiceDiscoveryService(tunnel_addr) as rsd:
+            respond("MOUNTING developer disk image")
+            await auto_mount(rsd)
+        # Give the device a moment to start advertising developer services.
+        await asyncio.sleep(2)
+        return None
+    except AlreadyMountedError:
+        return None
+    except DeveloperModeIsNotEnabledError:
+        return ("Developer Mode is not enabled. Enable it on the iPhone in "
+                "Settings > Privacy & Security > Developer Mode, then reboot.")
+    except Exception as e:
+        return f"DDI mount failed: {e}"
+
+
 async def run_daemon(tunnel_path, udid=None):
     """Main daemon loop with persistent DVT connection."""
     tunnel_addr = discover_tunnel_from_tunneld(udid)
@@ -87,6 +121,12 @@ async def run_daemon(tunnel_path, udid=None):
         return
 
     respond(f"CONNECTING {tunnel_addr[0]} {tunnel_addr[1]}")
+
+    # The dtservicehub developer service requires the DDI to be mounted.
+    mount_error = await ensure_ddi_mounted(tunnel_addr)
+    if mount_error:
+        respond(f"ERROR {mount_error}")
+        return
 
     try:
         async with RemoteServiceDiscoveryService(tunnel_addr) as rsd:

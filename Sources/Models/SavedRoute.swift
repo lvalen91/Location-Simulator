@@ -77,9 +77,9 @@ struct RecentRoute: Identifiable, Codable, Hashable {
     }
 }
 
-/// Discovered iOS device connected via USB.
+/// Discovered iOS device (USB or Wi-Fi paired).
 struct DeviceInfo: Identifiable, Hashable {
     let id: String          // UDID
     var name: String
-    var connectionType: String  // "USB"
+    var connectionType: String  // "USB" or "Wi-Fi"
 }

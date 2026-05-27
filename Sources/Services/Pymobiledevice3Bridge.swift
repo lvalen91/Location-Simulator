@@ -2,7 +2,7 @@ import Foundation
 import os
 
 private let kTunnelInfoPath = "/tmp/pymobiledevice3_tunnel.txt"
-private let kDaemonStartTimeout: TimeInterval = 15
+private let kDaemonStartTimeout: TimeInterval = 120  // first-run DDI download + mount can exceed a minute
 private let kTunneldURL = "http://127.0.0.1:49151/"
 private let logger = Logger(subsystem: "com.locationsimulator", category: "Bridge")
 
@@ -262,30 +262,62 @@ final class Pymobiledevice3Bridge {
     // MARK: - Tunneld Management
 
     func isTunneldRunning() -> Bool {
-        guard let url = URL(string: kTunneldURL) else { return false }
-        let sem = DispatchSemaphore(value: 0)
-        var running = false
-        URLSession.shared.dataTask(with: url) { _, response, _ in
-            if let http = response as? HTTPURLResponse, http.statusCode == 200 { running = true }
-            sem.signal()
-        }.resume()
-        _ = sem.wait(timeout: .now() + 2)
-        return running
+        // Fast path: HTTP probe of the tunneld API.
+        if let url = URL(string: kTunneldURL) {
+            let sem = DispatchSemaphore(value: 0)
+            var running = false
+            URLSession.shared.dataTask(with: url) { _, response, _ in
+                if let http = response as? HTTPURLResponse, http.statusCode == 200 { running = true }
+                sem.signal()
+            }.resume()
+            _ = sem.wait(timeout: .now() + 3)
+            if running { return true }
+        }
+        // Fallback: the HTTP probe is unreliable from inside the app, so treat a
+        // live `pymobiledevice3 remote tunneld` process as running. Without this,
+        // a leftover tunneld (which survives app quit) is invisible here and the
+        // app spawns a duplicate that fails to bind port 49151 (EADDRINUSE).
+        return isTunneldProcessRunning()
     }
 
-    /// Discover USB-connected iOS devices using pymobiledevice3 usbmux list.
-    func discoverDevices() -> [DeviceInfo] {
-        guard let binary = binaryPath else { return [] }
-
+    /// True if a `pymobiledevice3 remote tunneld` process is alive, regardless of
+    /// owning user. Used as a fallback when the HTTP probe fails.
+    private func isTunneldProcessRunning() -> Bool {
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: binary)
-        proc.arguments = ["--no-color", "usbmux", "list", "--usb"]
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        proc.arguments = ["-f", "pymobiledevice3 remote tunneld"]
         let pipe = Pipe()
         proc.standardOutput = pipe
         proc.standardError = FileHandle.nullDevice
 
         do { try proc.run() } catch {
-            logger.error("Failed to list USB devices: \(error.localizedDescription)")
+            logger.error("pgrep tunneld check failed: \(error.localizedDescription)")
+            return false
+        }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        proc.waitUntilExit()
+        return proc.terminationStatus == 0 && !data.isEmpty
+    }
+
+    /// Discover iOS devices (USB and Wi-Fi) using pymobiledevice3 usbmux list.
+    ///
+    /// `usbmux list` without flags returns both USB- and Wi-Fi-paired devices.
+    /// Wi-Fi devices require a previous USB pairing with this Mac and "Sync over
+    /// Wi-Fi" enabled in Finder; the tunneld daemon then builds the iOS 17+
+    /// RemoteXPC tunnel over mDNS just like for USB devices.
+    func discoverDevices() -> [DeviceInfo] {
+        guard let binary = binaryPath else { return [] }
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: binary)
+        proc.arguments = ["--no-color", "usbmux", "list"]
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = FileHandle.nullDevice
+
+        do { try proc.run() } catch {
+            logger.error("Failed to list devices: \(error.localizedDescription)")
             return []
         }
 
@@ -297,7 +329,9 @@ final class Pymobiledevice3Bridge {
             return discoverDevicesViaLibimobiledevice()
         }
 
-        var devices: [DeviceInfo] = []
+        // A device paired both via USB and Wi-Fi will appear twice in the
+        // listing (once per transport). Prefer USB when both are present.
+        var byUDID: [String: DeviceInfo] = [:]
         for entry in json {
             guard let udid = entry["UniqueDeviceID"] as? String
                     ?? entry["SerialNumber"] as? String else { continue }
@@ -311,9 +345,18 @@ final class Pymobiledevice3Bridge {
             if name == nil || name?.isEmpty == true {
                 name = entry["ProductType"] as? String
             }
-            devices.append(DeviceInfo(id: udid, name: name ?? udid, connectionType: "USB"))
+            let rawType = (entry["ConnectionType"] as? String) ?? "USB"
+            let connType = rawType.caseInsensitiveCompare("Network") == .orderedSame ? "Wi-Fi" : "USB"
+            let info = DeviceInfo(id: udid, name: name ?? udid, connectionType: connType)
+            if let existing = byUDID[udid], existing.connectionType == "USB" { continue }
+            byUDID[udid] = info
         }
-        return devices
+        return Array(byUDID.values).sorted { lhs, rhs in
+            if lhs.connectionType != rhs.connectionType {
+                return lhs.connectionType == "USB"  // USB first
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
     }
 
     /// Query device name for a UDID via ideviceinfo or pymobiledevice3.
@@ -337,27 +380,39 @@ final class Pymobiledevice3Bridge {
         return nil
     }
 
-    /// Fallback: discover USB devices via idevice_id (libimobiledevice).
+    /// Fallback: discover devices via idevice_id (libimobiledevice), both USB and network.
     private func discoverDevicesViaLibimobiledevice() -> [DeviceInfo] {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        proc.arguments = ["idevice_id", "-l"]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        proc.standardError = FileHandle.nullDevice
+        func list(flag: String) -> [String] {
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            proc.arguments = ["idevice_id", flag]
+            let pipe = Pipe()
+            proc.standardOutput = pipe
+            proc.standardError = FileHandle.nullDevice
+            do { try proc.run() } catch { return [] }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            proc.waitUntilExit()
+            guard proc.terminationStatus == 0,
+                  let output = String(data: data, encoding: .utf8) else { return [] }
+            return output.split(separator: "\n")
+                .map { String($0).trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+        }
 
-        do { try proc.run() } catch { return [] }
+        let usbUDIDs = Set(list(flag: "-l"))
+        let netUDIDs = Set(list(flag: "-n"))
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        proc.waitUntilExit()
-
-        guard proc.terminationStatus == 0,
-              let output = String(data: data, encoding: .utf8) else { return [] }
-
-        return output.split(separator: "\n")
-            .map { String($0).trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .map { DeviceInfo(id: $0, name: String($0.prefix(8)) + "...", connectionType: "USB") }
+        var byUDID: [String: DeviceInfo] = [:]
+        for udid in usbUDIDs.union(netUDIDs) {
+            let conn = usbUDIDs.contains(udid) ? "USB" : "Wi-Fi"
+            byUDID[udid] = DeviceInfo(id: udid, name: String(udid.prefix(8)) + "...", connectionType: conn)
+        }
+        return Array(byUDID.values).sorted { lhs, rhs in
+            if lhs.connectionType != rhs.connectionType {
+                return lhs.connectionType == "USB"
+            }
+            return lhs.id < rhs.id
+        }
     }
 
     func ensureTunneldRunning() -> Bool {

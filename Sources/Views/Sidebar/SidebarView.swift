@@ -18,19 +18,19 @@ struct SidebarView: View {
             }
 
             // MARK: - Devices
-            Section("USB Devices") {
+            Section("iOS Devices") {
                 if appState.devices.isEmpty {
                     if appState.isScanning {
                         HStack {
                             ProgressView().controlSize(.small)
-                            Text("Scanning USB...")
+                            Text("Scanning...")
                                 .foregroundStyle(.secondary)
                         }
                     } else {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("No USB devices found")
+                            Text("No devices found")
                                 .foregroundStyle(.secondary)
-                            Text("Connect an iPhone via USB cable")
+                            Text("Connect an iPhone via USB or Wi-Fi sync")
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         }
@@ -41,14 +41,20 @@ struct SidebarView: View {
                     let isSelected = device == appState.selectedDevice
                     let isConnected = isSelected && appState.spoofing.isConnected
                     let isConnecting = isSelected && !appState.spoofing.isConnected
+                    let isWiFi = device.connectionType == "Wi-Fi"
+                    let iconName = isWiFi ? "wifi" : "cable.connector"
 
                     HStack {
-                        Image(systemName: "cable.connector")
+                        Image(systemName: iconName)
                             .foregroundStyle(isConnected ? .green : .secondary)
                         VStack(alignment: .leading) {
                             Text(device.name)
                                 .lineLimit(1)
-                            Text(isConnected ? "Connected" : isConnecting ? "Connecting..." : "Tap to connect")
+                            Text(isConnected
+                                 ? "Connected (\(device.connectionType))"
+                                 : isConnecting
+                                   ? "Connecting..."
+                                   : "Tap to connect (\(device.connectionType))")
                                 .font(.caption2)
                                 .foregroundStyle(isConnected ? .green : .secondary)
                         }

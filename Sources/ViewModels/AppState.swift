@@ -113,7 +113,7 @@ final class AppState {
                 // Notify user of newly detected devices
                 let newDevices = found.filter { d in !previous.contains(where: { $0.id == d.id }) }
                 if !newDevices.isEmpty {
-                    self?.statusMessage = "\(newDevices.count) USB device\(newDevices.count > 1 ? "s" : "") detected"
+                    self?.statusMessage = "\(newDevices.count) device\(newDevices.count > 1 ? "s" : "") detected"
                     // Auto-clear status after 3 seconds
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                         if self?.statusMessage?.contains("detected") == true {
