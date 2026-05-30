@@ -7,9 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		DA1234560000000000000001 /* location_daemon.py in Resources */ = {isa = PBXBuildFile; fileRef = DA1234560000000000000002 /* location_daemon.py */; };
+		05FA374D19A06C73B3D75A25 /* location_daemon.py in Resources */ = {isa = PBXBuildFile; fileRef = E102DEC1A7B69E105C9F07E2 /* location_daemon.py */; };
 		0F1944D2046E0F073619C027 /* RouteResultsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C5CC2B5C2889F7520828C5A /* RouteResultsPanel.swift */; };
 		2CC64D4398A2361F7F31305B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E8A2861383C804154EDE98E /* ContentView.swift */; };
+		2DF07F7DD2AA8714AB81A5E5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E1329E9CB3856D73CE91A235 /* Assets.xcassets */; };
 		2F0747369A70DA4D5CE774F0 /* LocationSimulatorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3FD380D9F085CB9109599F0 /* LocationSimulatorApp.swift */; };
 		39E39EF4AEABA919A9F61E59 /* SearchCompleterManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEDC62A6242B66918990741C /* SearchCompleterManager.swift */; };
 		3F135DDBC2AB64FD5B73A2DF /* MapViewRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 717EFBD482B47EC1D56E1C52 /* MapViewRepresentable.swift */; };
@@ -22,10 +23,12 @@
 		C9A5A837E2F35EB5D6E301CC /* LocationSpoofingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C0A4B00292AB2CA3F4EC178 /* LocationSpoofingService.swift */; };
 		DB324EF512B560C80C36B758 /* RouteSearchPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 157487CE5C5809B2C1B3F4D6 /* RouteSearchPanel.swift */; };
 		E4D01AD96CF4B2FB3DEF4467 /* SpeedControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6D4CE3125729F03D3D8F93A /* SpeedControlView.swift */; };
+		F48743170C06ACCB86229B10 /* PlacesDetailPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 136EDE4AA439C90E7B694A71 /* PlacesDetailPanel.swift */; };
 		F7280127097DDDA12E495F89 /* NavigationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16FB30C98F63DC4DCF339D8F /* NavigationEngine.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		136EDE4AA439C90E7B694A71 /* PlacesDetailPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlacesDetailPanel.swift; sourceTree = "<group>"; };
 		157487CE5C5809B2C1B3F4D6 /* RouteSearchPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteSearchPanel.swift; sourceTree = "<group>"; };
 		16FB30C98F63DC4DCF339D8F /* NavigationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationEngine.swift; sourceTree = "<group>"; };
 		1C0A4B00292AB2CA3F4EC178 /* LocationSpoofingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationSpoofingService.swift; sourceTree = "<group>"; };
@@ -41,7 +44,8 @@
 		B6D4CE3125729F03D3D8F93A /* SpeedControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedControlView.swift; sourceTree = "<group>"; };
 		CBD75B930DB42A4FA558C721 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		DEDC62A6242B66918990741C /* SearchCompleterManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchCompleterManager.swift; sourceTree = "<group>"; };
-		DA1234560000000000000002 /* location_daemon.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = location_daemon.py; path = Resources/location_daemon.py; sourceTree = "<group>"; };
+		E102DEC1A7B69E105C9F07E2 /* location_daemon.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = location_daemon.py; sourceTree = "<group>"; };
+		E1329E9CB3856D73CE91A235 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		EABFA92F533A8F4CF25AE170 /* LocationSimulator2.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LocationSimulator2.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -138,9 +142,19 @@
 			path = Extensions;
 			sourceTree = "<group>";
 		};
+		ABA64FAF6F1D7459D4C30816 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				E1329E9CB3856D73CE91A235 /* Assets.xcassets */,
+				E102DEC1A7B69E105C9F07E2 /* location_daemon.py */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		B4FF969735790C29F620507E /* Sidebar */ = {
 			isa = PBXGroup;
 			children = (
+				136EDE4AA439C90E7B694A71 /* PlacesDetailPanel.swift */,
 				CBD75B930DB42A4FA558C721 /* SidebarView.swift */,
 			);
 			path = Sidebar;
@@ -154,19 +168,11 @@
 			path = Search;
 			sourceTree = "<group>";
 		};
-		DA1234560000000000000003 /* Resources */ = {
-			isa = PBXGroup;
-			children = (
-				DA1234560000000000000002 /* location_daemon.py */,
-			);
-			name = Resources;
-			sourceTree = "<group>";
-		};
 		E33C945EA52671733149BFF7 = {
 			isa = PBXGroup;
 			children = (
+				ABA64FAF6F1D7459D4C30816 /* Resources */,
 				90F49ABDBA2B7CDABF96D0DB /* Sources */,
-				DA1234560000000000000003 /* Resources */,
 				555B3CEC3BE6804108CC0B4C /* Products */,
 			);
 			sourceTree = "<group>";
@@ -189,7 +195,7 @@
 			buildConfigurationList = 7E0F77E29EE5C93D06647746 /* Build configuration list for PBXNativeTarget "LocationSimulator2" */;
 			buildPhases = (
 				993CF4D00F27F27ECCD9F93A /* Sources */,
-				DA1234560000000000000004 /* Resources */,
+				99F67537DE29AD3E33902014 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -210,9 +216,10 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+				};
 			};
 			buildConfigurationList = B992FA3B7E8239FDFE2885A3 /* Build configuration list for PBXProject "LocationSimulator2" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -222,6 +229,7 @@
 			mainGroup = E33C945EA52671733149BFF7;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
+			productRefGroup = 555B3CEC3BE6804108CC0B4C /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -231,11 +239,12 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		DA1234560000000000000004 /* Resources */ = {
+		99F67537DE29AD3E33902014 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DA1234560000000000000001 /* location_daemon.py in Resources */,
+				2DF07F7DD2AA8714AB81A5E5 /* Assets.xcassets in Resources */,
+				05FA374D19A06C73B3D75A25 /* location_daemon.py in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -253,6 +262,7 @@
 				C9A5A837E2F35EB5D6E301CC /* LocationSpoofingService.swift in Sources */,
 				3F135DDBC2AB64FD5B73A2DF /* MapViewRepresentable.swift in Sources */,
 				F7280127097DDDA12E495F89 /* NavigationEngine.swift in Sources */,
+				F48743170C06ACCB86229B10 /* PlacesDetailPanel.swift in Sources */,
 				9855B10A27BD874BE16FD0C3 /* Pymobiledevice3Bridge.swift in Sources */,
 				0F1944D2046E0F073619C027 /* RouteResultsPanel.swift in Sources */,
 				DB324EF512B560C80C36B758 /* RouteSearchPanel.swift in Sources */,

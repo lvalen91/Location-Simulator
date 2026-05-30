@@ -19,10 +19,11 @@ targets:
     platform: macOS
     sources:
       - path: Sources
-    resources:
       - path: Resources
         excludes:
           - "**/*.entitlements"
+          - "Info.plist"
+          - "__pycache__/**"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.locationsimulator.LocationSimulator2

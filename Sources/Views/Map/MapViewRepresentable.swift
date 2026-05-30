@@ -18,32 +18,27 @@ struct MapViewRepresentable: NSViewRepresentable {
         mapView.showsScale = true
         mapView.showsUserLocation = false
 
-        // Reposition the scale view to bottom center after layout
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             Self.repositionScaleView(in: mapView)
         }
 
-        // Long press → teleport/route
         let longPress = NSPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleLongPress(_:)))
         longPress.minimumPressDuration = 0.5
         mapView.addGestureRecognizer(longPress)
 
-        // Right click → context menu
         let rightClick = NSClickGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleRightClick(_:)))
-        rightClick.buttonMask = 0x2 // right button
+        rightClick.buttonMask = 0x2
         mapView.addGestureRecognizer(rightClick)
 
         context.coordinator.mapView = mapView
         return mapView
     }
 
-    /// Find the built-in scale subview and reposition it to bottom center.
     private static func repositionScaleView(in mapView: MKMapView) {
         for subview in mapView.subviews {
             let className = String(describing: type(of: subview))
             if className.contains("Scale") || className.contains("scale") {
                 subview.translatesAutoresizingMaskIntoConstraints = false
-                // Remove existing constraints on this view
                 for constraint in mapView.constraints where constraint.firstItem === subview || constraint.secondItem === subview {
                     mapView.removeConstraint(constraint)
                 }
@@ -54,7 +49,6 @@ struct MapViewRepresentable: NSViewRepresentable {
                 mapView.layoutSubtreeIfNeeded()
                 return
             }
-            // Check one level deeper
             for nested in subview.subviews {
                 let nestedName = String(describing: type(of: nested))
                 if nestedName.contains("Scale") || nestedName.contains("scale") {
@@ -75,18 +69,12 @@ struct MapViewRepresentable: NSViewRepresentable {
     func updateNSView(_ mapView: MKMapView, context: Context) {
         context.coordinator.appState = appState
 
-        // Update map type
         if mapView.mapType != appState.mapType {
             mapView.mapType = appState.mapType
         }
 
-        // Update current location marker
         context.coordinator.updateCurrentLocationMarker()
-
-        // Update route overlays
         context.coordinator.updateRouteOverlays()
-
-        // Update navigation overlay
         context.coordinator.updateNavigationOverlay()
     }
 
@@ -107,7 +95,7 @@ struct MapViewRepresentable: NSViewRepresentable {
         // MARK: - Marker
 
         func updateCurrentLocationMarker() {
-            guard let mapView = mapView else { return }
+            guard let mapView else { return }
 
             if let location = appState.spoofing.currentLocation {
                 if currentMarker == nil {
@@ -127,36 +115,38 @@ struct MapViewRepresentable: NSViewRepresentable {
         // MARK: - Route Preview Overlays
 
         func updateRouteOverlays() {
-            guard let mapView = mapView else { return }
+            guard let mapView else { return }
 
-            // Remove old overlays
             for overlay in routeOverlays { mapView.removeOverlay(overlay) }
             routeOverlays.removeAll()
 
-            // Add calculated routes
-            for route in appState.calculatedRoutes {
-                let polyline = route.polyline
+            for result in appState.calculatedRoutes {
+                let coords = result.polylineCoordinates
+                guard !coords.isEmpty else { continue }
+                let polyline = MKPolyline(coordinates: coords, count: coords.count)
                 routeOverlays.append(polyline)
                 mapView.addOverlay(polyline, level: .aboveLabels)
             }
 
-            // Zoom to fit routes
-            if let first = appState.calculatedRoutes.first {
-                var rect = first.polyline.boundingMapRect
-                for route in appState.calculatedRoutes.dropFirst() {
-                    rect = rect.union(route.polyline.boundingMapRect)
+            if !appState.calculatedRoutes.isEmpty {
+                var rect = MKMapRect.null
+                for result in appState.calculatedRoutes {
+                    for leg in result.legs {
+                        rect = rect.union(leg.polyline.boundingMapRect)
+                    }
                 }
-                let padding = NSEdgeInsets(top: 60, left: 60, bottom: 60, right: 60)
-                mapView.setVisibleMapRect(rect, edgePadding: padding, animated: true)
+                if !rect.isNull {
+                    let padding = NSEdgeInsets(top: 60, left: 60, bottom: 60, right: 60)
+                    mapView.setVisibleMapRect(rect, edgePadding: padding, animated: true)
+                }
             }
         }
 
         // MARK: - Navigation Overlay
 
         func updateNavigationOverlay() {
-            guard let mapView = mapView else { return }
+            guard let mapView else { return }
 
-            // Remove old navigation overlays
             if let old = navigationOverlay { mapView.removeOverlay(old) }
             if let old = completedOverlay { mapView.removeOverlay(old) }
             navigationOverlay = nil
@@ -165,7 +155,6 @@ struct MapViewRepresentable: NSViewRepresentable {
             let engine = appState.spoofing.navigation
             guard engine.isNavigating else { return }
 
-            // Remaining route (blue)
             let remaining = engine.remainingRoute
             if remaining.count >= 2 {
                 let overlay = MKPolyline(coordinates: remaining, count: remaining.count)
@@ -173,7 +162,6 @@ struct MapViewRepresentable: NSViewRepresentable {
                 navigationOverlay = overlay
             }
 
-            // Completed route (gray)
             let completed = engine.completedRoute
             if completed.count >= 2 {
                 let overlay = MKPolyline(coordinates: completed, count: completed.count)
@@ -191,7 +179,6 @@ struct MapViewRepresentable: NSViewRepresentable {
 
             let renderer = MKPolylineRenderer(polyline: polyline)
 
-            // Navigation overlays
             if polyline === completedOverlay {
                 renderer.strokeColor = .systemGray
                 renderer.lineWidth = 5
@@ -204,7 +191,6 @@ struct MapViewRepresentable: NSViewRepresentable {
                 return renderer
             }
 
-            // Route preview overlays
             if let selectedIdx = appState.selectedRouteIndex,
                selectedIdx < routeOverlays.count,
                polyline === routeOverlays[selectedIdx] {
@@ -241,17 +227,14 @@ struct MapViewRepresentable: NSViewRepresentable {
         // MARK: - Gestures
 
         @objc func handleLongPress(_ gesture: NSPressGestureRecognizer) {
-            guard gesture.state == .ended, let mapView = mapView else { return }
-            let point = gesture.location(in: mapView)
-            let coord = mapView.convert(point, toCoordinateFrom: mapView)
-            // Default long press: teleport
+            guard gesture.state == .ended, let mapView else { return }
+            let coord = mapView.convert(gesture.location(in: mapView), toCoordinateFrom: mapView)
             appState.teleportTo(coord)
         }
 
         @objc func handleRightClick(_ gesture: NSClickGestureRecognizer) {
-            guard let mapView = mapView else { return }
-            let point = gesture.location(in: mapView)
-            let coord = mapView.convert(point, toCoordinateFrom: mapView)
+            guard let mapView else { return }
+            let coord = mapView.convert(gesture.location(in: mapView), toCoordinateFrom: mapView)
 
             let menu = NSMenu()
 
@@ -272,7 +255,17 @@ struct MapViewRepresentable: NSViewRepresentable {
             toItem.representedObject = NSValue(mkCoordinate: coord)
             menu.addItem(toItem)
 
+            let addStopItem = NSMenuItem(title: "Add Stop Here", action: #selector(contextAddStop(_:)), keyEquivalent: "")
+            addStopItem.target = self
+            addStopItem.representedObject = NSValue(mkCoordinate: coord)
+            menu.addItem(addStopItem)
+
             menu.addItem(.separator())
+
+            let pinItem = NSMenuItem(title: "Pin", action: #selector(contextPin(_:)), keyEquivalent: "")
+            pinItem.target = self
+            pinItem.representedObject = NSValue(mkCoordinate: coord)
+            menu.addItem(pinItem)
 
             let copyItem = NSMenuItem(title: "Copy Coordinates", action: #selector(contextCopyCoords(_:)), keyEquivalent: "")
             copyItem.target = self
@@ -297,12 +290,21 @@ struct MapViewRepresentable: NSViewRepresentable {
             appState.setRouteTo(val.mkCoordinateValue)
         }
 
+        @objc private func contextAddStop(_ sender: NSMenuItem) {
+            guard let val = sender.representedObject as? NSValue else { return }
+            appState.addStopAt(val.mkCoordinateValue)
+        }
+
+        @objc private func contextPin(_ sender: NSMenuItem) {
+            guard let val = sender.representedObject as? NSValue else { return }
+            appState.pinLocation(val.mkCoordinateValue)
+        }
+
         @objc private func contextCopyCoords(_ sender: NSMenuItem) {
             guard let val = sender.representedObject as? NSValue else { return }
             let coord = val.mkCoordinateValue
-            let str = String(format: "%.6f, %.6f", coord.latitude, coord.longitude)
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(str, forType: .string)
+            NSPasteboard.general.setString(String(format: "%.6f, %.6f", coord.latitude, coord.longitude), forType: .string)
         }
     }
 }

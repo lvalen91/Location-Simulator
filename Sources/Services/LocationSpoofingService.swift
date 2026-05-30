@@ -47,7 +47,7 @@ final class LocationSpoofingService {
                     self?.isConnected = true
                     self?.connectedDeviceUDID = udid
                     self?.errorMessage = nil
-                    logger.info("Connected to \(udid)")
+                    logger.info("Connected to \(String(udid.prefix(8)), privacy: .public)")
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -122,14 +122,13 @@ final class LocationSpoofingService {
         navigation.stop()
     }
 
-    /// Pause/resume navigation.
+    /// Pause/resume navigation. No-op if navigation isn't running.
     func toggleNavigation() {
-        if navigation.isNavigating {
-            if navigation.progress > 0 {
-                navigation.pause()
-            }
-        } else {
+        guard navigation.isNavigating else { return }
+        if navigation.isPaused {
             navigation.resume()
+        } else {
+            navigation.pause()
         }
     }
 }

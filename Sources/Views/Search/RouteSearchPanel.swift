@@ -1,103 +1,54 @@
 import SwiftUI
 import MapKit
 
-/// Maps.app-style From/To search fields with autocomplete suggestions,
-/// displayed at the top of the sidebar.
+/// Maps.app-style multi-stop route search panel.
+/// Shows N waypoint rows (origin + optional stops + destination), each with
+/// its own autocomplete. "+ Add Stop" inserts before the destination.
 struct RouteSearchPanel: View {
     @Bindable var appState: AppState
-    @State private var fromCompleter = SearchCompleterManager()
-    @State private var toCompleter = SearchCompleterManager()
-    @State private var showFromSuggestions = false
-    @State private var showToSuggestions = false
-    @FocusState private var focusedField: SearchField?
-
-    private enum SearchField {
-        case from, to
-    }
 
     var body: some View {
         Section {
-            VStack(spacing: 6) {
-                HStack(spacing: 6) {
-                    // Dots + fields
-                    VStack(spacing: 6) {
-                        // From field
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(.green)
-                                .frame(width: 8, height: 8)
-                            TextField("Current Location", text: $appState.fromText)
-                                .textFieldStyle(.roundedBorder)
-                                .controlSize(.small)
-                                .focused($focusedField, equals: .from)
-                                .onChange(of: appState.fromText) { _, newValue in
-                                    fromCompleter.search(newValue)
-                                    showFromSuggestions = !newValue.isEmpty
-                                }
-                        }
-                        // To field
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(.red)
-                                .frame(width: 8, height: 8)
-                            TextField("Search destination", text: $appState.toText)
-                                .textFieldStyle(.roundedBorder)
-                                .controlSize(.small)
-                                .focused($focusedField, equals: .to)
-                                .onChange(of: appState.toText) { _, newValue in
-                                    toCompleter.search(newValue)
-                                    showToSuggestions = !newValue.isEmpty
-                                }
+            VStack(spacing: 4) {
+                // Waypoint rows — stable identity by UUID so each row keeps
+                // its own @State SearchCompleterManager across insertions.
+                ForEach(Array(appState.waypoints.enumerated()), id: \.element.id) { item in
+                    WaypointRow(appState: appState, index: item.offset)
+                }
+
+                // Add Stop — inserts an empty stop before the destination.
+                if appState.waypoints.count < 10 {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) { appState.addStop() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundStyle(.blue)
+                                .font(.system(size: 15))
+                            Text("Add Stop")
+                                .font(.callout)
+                                .foregroundStyle(.blue)
+                            Spacer()
                         }
                     }
+                    .buttonStyle(.plain)
+                    .padding(.leading, 18)
+                    .padding(.vertical, 2)
+                }
 
-                    // Swap button to the right of both fields
+                // Action bar
+                HStack {
                     Button(action: { appState.swapFromTo() }) {
-                        Image(systemName: "arrow.up.arrow.down")
-                            .font(.system(size: 13))
+                        Label("Reverse", systemImage: "arrow.up.arrow.down")
+                            .font(.caption)
                     }
                     .buttonStyle(.borderless)
-                    .help("Swap origin and destination")
-                }
+                    .help("Reverse route order")
 
-                // From suggestions
-                if showFromSuggestions && !fromCompleter.suggestions.isEmpty && focusedField == .from {
-                    SuggestionsList(suggestions: fromCompleter.suggestions) { suggestion in
-                        fromCompleter.resolve(suggestion) { coord, name in
-                            if let coord = coord {
-                                appState.fromCoordinate = coord
-                                appState.fromText = name ?? suggestion.title
-                                appState.fromName = name ?? suggestion.title
-                                showFromSuggestions = false
-                                focusedField = .to
-                                tryCalculateRoutes()
-                            }
-                        }
-                    }
-                }
-
-                // To suggestions
-                if showToSuggestions && !toCompleter.suggestions.isEmpty && focusedField == .to {
-                    SuggestionsList(suggestions: toCompleter.suggestions) { suggestion in
-                        toCompleter.resolve(suggestion) { coord, name in
-                            if let coord = coord {
-                                appState.toCoordinate = coord
-                                appState.toText = name ?? suggestion.title
-                                appState.toName = name ?? suggestion.title
-                                showToSuggestions = false
-                                focusedField = nil
-                                tryCalculateRoutes()
-                            }
-                        }
-                    }
-                }
-
-                // Clear button
-                HStack {
                     Spacer()
 
-                    // Clear button
-                    if !appState.fromText.isEmpty || !appState.toText.isEmpty {
+                    let hasContent = appState.waypoints.contains { !$0.text.isEmpty || !$0.name.isEmpty }
+                    if hasContent {
                         Button(action: { appState.clearSearch() }) {
                             Image(systemName: "xmark.circle.fill")
                         }
@@ -106,22 +57,120 @@ struct RouteSearchPanel: View {
                         .help("Clear search")
                     }
                 }
+                .padding(.top, 2)
             }
             .padding(.vertical, 4)
         } header: {
             Text("Route")
         }
     }
+}
 
-    private func tryCalculateRoutes() {
-        if appState.toCoordinate != nil &&
-           (appState.fromCoordinate != nil || appState.spoofing.currentLocation != nil) {
-            appState.calculateRoutes()
+// MARK: - WaypointRow
+
+/// A single stop field with autocomplete. Owns its SearchCompleterManager via
+/// @State so the instance survives array mutations on sibling stops.
+private struct WaypointRow: View {
+    @Bindable var appState: AppState
+    let index: Int
+
+    @State private var completer = SearchCompleterManager()
+    @State private var showSuggestions = false
+    @FocusState private var isFocused: Bool
+
+    private var isValid: Bool { index < appState.waypoints.count }
+    private var isFirst: Bool { index == 0 }
+    private var isLast: Bool { index == appState.waypoints.count - 1 }
+    private var isMiddle: Bool { !isFirst && !isLast }
+
+    private var dotColor: Color {
+        if isFirst { return .green }
+        if isLast  { return .red }
+        return .orange
+    }
+
+    private var placeholder: String {
+        if isFirst { return "Current Location" }
+        if isLast  { return "Search destination" }
+        return "Search stop \(index)"
+    }
+
+    private var textBinding: Binding<String> {
+        Binding(
+            get: {
+                guard index < appState.waypoints.count else { return "" }
+                return appState.waypoints[index].text
+            },
+            set: { newVal in
+                guard index < appState.waypoints.count else { return }
+                appState.waypoints[index].text = newVal
+                // Clearing the field also resets the resolved coordinate.
+                if newVal.isEmpty {
+                    appState.waypoints[index].coordinate = nil
+                    appState.waypoints[index].name = ""
+                }
+            }
+        )
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(dotColor)
+                    .frame(width: 8, height: 8)
+                    .padding(.leading, 2)
+
+                TextField(placeholder, text: textBinding)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                    .focused($isFocused)
+                    .onChange(of: appState.waypoints.indices.contains(index) ? appState.waypoints[index].text : "") { _, newValue in
+                        guard appState.waypoints.indices.contains(index) else { return }
+                        completer.search(newValue)
+                        showSuggestions = !newValue.isEmpty
+                    }
+
+                // Delete button — only for middle stops when ≥ 3 waypoints.
+                if isMiddle {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) { appState.removeStop(at: index) }
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .foregroundStyle(.red)
+                            .font(.system(size: 14))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // Autocomplete dropdown
+            if showSuggestions && isFocused && !completer.suggestions.isEmpty {
+                SuggestionsList(suggestions: completer.suggestions) { suggestion in
+                    completer.resolve(suggestion) { coord, name in
+                        guard let coord, index < appState.waypoints.count else { return }
+                        appState.waypoints[index].coordinate = coord
+                        appState.waypoints[index].text = name ?? suggestion.title
+                        appState.waypoints[index].name = name ?? suggestion.title
+                        showSuggestions = false
+                        isFocused = false
+                        appState.tryCalculateRoutes()
+                    }
+                }
+            }
+        }
+        .onChange(of: isFocused) { _, focused in
+            if !focused {
+                // Small delay so a tap on a suggestion row registers first.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    if !isFocused { showSuggestions = false }
+                }
+            }
         }
     }
 }
 
-// MARK: - Suggestions List
+// MARK: - SuggestionsList
 
 private struct SuggestionsList: View {
     let suggestions: [MKLocalSearchCompletion]

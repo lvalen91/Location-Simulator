@@ -15,6 +15,8 @@ final class NavigationEngine {
     private(set) var distanceAlongSegment: Double = 0
     /// Whether the engine is actively navigating.
     private(set) var isNavigating: Bool = false
+    /// True when navigation is started but the tick timer has been paused.
+    private(set) var isPaused: Bool = false
     /// Total distance of the route in meters.
     private(set) var totalDistance: Double = 0
     /// Distance already traveled in meters.
@@ -91,13 +93,16 @@ final class NavigationEngine {
 
     /// Pause navigation (keeps state).
     func pause() {
+        guard isNavigating, !isPaused else { return }
         timer?.invalidate()
         timer = nil
+        isPaused = true
     }
 
     /// Resume a paused navigation.
     func resume() {
-        guard isNavigating, timer == nil else { return }
+        guard isNavigating, isPaused else { return }
+        isPaused = false
         lastTick = Date()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.tick()
@@ -110,6 +115,7 @@ final class NavigationEngine {
         timer?.invalidate()
         timer = nil
         isNavigating = false
+        isPaused = false
         route = []
         currentPosition = nil
         currentSegmentIndex = 0

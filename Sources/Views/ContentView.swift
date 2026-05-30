@@ -18,6 +18,18 @@ struct ContentView: View {
                 MapViewRepresentable(appState: appState)
                     .ignoresSafeArea()
 
+                // Floating Places detail panel — slides in from the sidebar
+                // when a Places category row is tapped. Top-anchored to match
+                // Apple Maps' panel placement.
+                if let category = appState.selectedPlacesCategory {
+                    PlacesDetailPanel(appState: appState, category: category)
+                        .padding(.leading, 8)
+                        .padding(.top, 8)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                        .allowsHitTesting(true)
+                }
+
                 // Status message overlay
                 if let status = appState.statusMessage {
                     VStack {
@@ -99,6 +111,7 @@ struct ContentView: View {
             }
         }
         .navigationTitle(navigationTitle)
+        .animation(.easeInOut(duration: 0.18), value: appState.selectedPlacesCategory)
     }
 
     private var navigationTitle: String {

@@ -2,29 +2,24 @@ import SwiftUI
 import MapKit
 
 /// Displays calculated route options in the sidebar, Maps.app style.
-/// Each route shows distance, duration, and can be selected to start navigation.
+/// Handles both single-leg (multiple alternates) and multi-leg (single combined) results.
 struct RouteResultsPanel: View {
     @Bindable var appState: AppState
 
     var body: some View {
         Section("Routes") {
-            ForEach(Array(appState.calculatedRoutes.enumerated()), id: \.offset) { index, route in
+            ForEach(Array(appState.calculatedRoutes.enumerated()), id: \.element.id) { item in
                 RouteCard(
-                    route: route,
-                    index: index,
-                    isSelected: appState.selectedRouteIndex == index,
-                    onSelect: {
-                        appState.selectedRouteIndex = index
-                    },
-                    onGo: {
-                        appState.startNavigation(routeIndex: index)
-                    }
+                    result: item.element,
+                    index: item.offset,
+                    isSelected: appState.selectedRouteIndex == item.offset,
+                    onSelect: { appState.selectedRouteIndex = item.offset },
+                    onGo: { appState.startNavigation(routeIndex: item.offset) }
                 )
             }
 
-            // Action row
             HStack(spacing: 12) {
-                if appState.toCoordinate != nil {
+                if appState.waypoints.last?.coordinate != nil {
                     Button(action: { appState.saveCurrentRoute() }) {
                         Label("Save Route", systemImage: "star")
                     }
@@ -49,25 +44,22 @@ struct RouteResultsPanel: View {
 // MARK: - Route Card
 
 private struct RouteCard: View {
-    let route: MKRoute
+    let result: RouteResult
     let index: Int
     let isSelected: Bool
     let onSelect: () -> Void
     let onGo: () -> Void
 
     private var distanceText: String {
-        let km = route.distance / 1000
-        if km < 1 {
-            return String(format: "%.0f m", route.distance)
-        }
-        return String(format: "%.1f km", km)
+        let km = result.totalDistance / 1000
+        return km < 1
+            ? String(format: "%.0f m", result.totalDistance)
+            : String(format: "%.1f km", km)
     }
 
     private var durationText: String {
-        let minutes = route.expectedTravelTime / 60
-        if minutes < 60 {
-            return String(format: "%.0f min", minutes)
-        }
+        let minutes = result.totalTime / 60
+        if minutes < 60 { return String(format: "%.0f min", minutes) }
         let hours = Int(minutes) / 60
         let mins = Int(minutes) % 60
         return "\(hours) hr \(mins) min"
@@ -76,9 +68,19 @@ private struct RouteCard: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Route \(index + 1)")
-                    .font(.headline)
-                    .foregroundStyle(isSelected ? .blue : .primary)
+                HStack(spacing: 6) {
+                    Text("Route \(index + 1)")
+                        .font(.headline)
+                        .foregroundStyle(isSelected ? .blue : .primary)
+                    if result.isMultiLeg {
+                        Text("\(result.legs.count) legs")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.secondary.opacity(0.15), in: Capsule())
+                    }
+                }
 
                 HStack(spacing: 12) {
                     Label(distanceText, systemImage: "arrow.triangle.turn.up.right.diamond")
@@ -87,7 +89,13 @@ private struct RouteCard: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-                if !route.name.isEmpty {
+                if result.isMultiLeg {
+                    ForEach(Array(result.legs.enumerated()), id: \.offset) { legIdx, leg in
+                        Text("Leg \(legIdx + 1): \(String(format: "%.1f km", leg.distance / 1000)), \(String(format: "%.0f min", leg.expectedTravelTime / 60))")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                } else if let route = result.legs.first, !route.name.isEmpty {
                     Text(route.name)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
