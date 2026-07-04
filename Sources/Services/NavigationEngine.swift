@@ -3,6 +3,7 @@ import CoreLocation
 
 /// Timer-driven engine that moves along a route at a configured speed,
 /// emitting position updates suitable for GPS spoofing.
+@MainActor
 @Observable
 final class NavigationEngine {
     /// The route waypoints being navigated.
@@ -86,7 +87,9 @@ final class NavigationEngine {
 
         lastTick = Date()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.tick()
+            // The timer is installed on RunLoop.main, so this fires on the main
+            // thread; assert that isolation to call the @MainActor tick().
+            MainActor.assumeIsolated { self?.tick() }
         }
         RunLoop.main.add(timer!, forMode: .common)
     }
@@ -105,7 +108,9 @@ final class NavigationEngine {
         isPaused = false
         lastTick = Date()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.tick()
+            // The timer is installed on RunLoop.main, so this fires on the main
+            // thread; assert that isolation to call the @MainActor tick().
+            MainActor.assumeIsolated { self?.tick() }
         }
         RunLoop.main.add(timer!, forMode: .common)
     }

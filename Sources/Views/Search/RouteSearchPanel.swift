@@ -206,7 +206,6 @@ private struct SuggestionsList: View {
                 }
             }
         }
-        .background(.background.opacity(0.8))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .insetRow()
     }
 }

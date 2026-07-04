@@ -3,8 +3,9 @@ import MapKit
 
 /// Wraps MKLocalSearchCompleter for use with SwiftUI.
 /// Provides autocomplete suggestions as the user types.
+@MainActor
 @Observable
-final class SearchCompleterManager: NSObject, MKLocalSearchCompleterDelegate {
+final class SearchCompleterManager: NSObject, @preconcurrency MKLocalSearchCompleterDelegate {
     var suggestions: [MKLocalSearchCompletion] = []
     var isSearching = false
 
@@ -34,7 +35,7 @@ final class SearchCompleterManager: NSObject, MKLocalSearchCompleterDelegate {
             DispatchQueue.main.async {
                 if let item = response?.mapItems.first {
                     let name = completion.title
-                    handler(item.placemark.coordinate, name)
+                    handler(item.location.coordinate, name)
                 } else {
                     handler(nil, nil)
                 }

@@ -2,11 +2,12 @@ import Foundation
 import CoreLocation
 import os
 
-private let logger = Logger(subsystem: "com.locationsimulator", category: "Spoofing")
+private let logger = Log(category: "Spoofing")
 
 /// High-level location spoofing service combining the pymobiledevice3 bridge
 /// with the navigation engine. This is the single source of truth for the
 /// current spoofed location, navigation state, and device connection.
+@MainActor
 @Observable
 final class LocationSpoofingService {
     // MARK: - Published State
@@ -15,6 +16,9 @@ final class LocationSpoofingService {
     private(set) var currentLocation: CLLocationCoordinate2D?
     /// Whether we have an active connection to a device.
     private(set) var isConnected: Bool = false
+    /// True while a connection attempt is in flight (guards against repeat
+    /// connect requests stacking duplicate daemon launches).
+    private(set) var isConnecting: Bool = false
     /// Error message for display.
     var errorMessage: String?
     /// UDID of the connected device.
@@ -37,21 +41,26 @@ final class LocationSpoofingService {
 
     // MARK: - Connection
 
-    /// Connect to a device by UDID. Starts tunneld if needed.
+    /// Connect to a device by UDID. Starts tunneld if needed. No-op if already
+    /// connected or a connection attempt is already in flight.
     func connect(udid: String) {
-        guard !isConnected else { return }
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        guard !isConnected, !isConnecting else { return }
+        isConnecting = true
+        Task { [weak self] in
+            guard let self else { return }
             do {
-                try self?.bridge.startTunnel(forDeviceUDID: udid)
-                DispatchQueue.main.async {
-                    self?.isConnected = true
-                    self?.connectedDeviceUDID = udid
-                    self?.errorMessage = nil
+                try await self.bridge.startTunnel(forDeviceUDID: udid)
+                await MainActor.run {
+                    self.isConnected = true
+                    self.connectedDeviceUDID = udid
+                    self.errorMessage = nil
+                    self.isConnecting = false
                     logger.info("Connected to \(String(udid.prefix(8)), privacy: .public)")
                 }
             } catch {
-                DispatchQueue.main.async {
-                    self?.errorMessage = error.localizedDescription
+                await MainActor.run {
+                    self.errorMessage = error.localizedDescription
+                    self.isConnecting = false
                     logger.error("Connection failed: \(error.localizedDescription)")
                 }
             }
@@ -62,8 +71,10 @@ final class LocationSpoofingService {
     func disconnect() {
         navigation.stop()
         if let udid = connectedDeviceUDID {
-            _ = bridge.clearSimulatedLocation()
-            bridge.stopTunnel(forDeviceUDID: udid)
+            Task { [bridge] in
+                _ = await bridge.clearSimulatedLocation()
+                await bridge.stopTunnel(forDeviceUDID: udid)
+            }
         }
         currentLocation = nil
         isConnected = false
@@ -76,11 +87,18 @@ final class LocationSpoofingService {
     func teleport(to coordinate: CLLocationCoordinate2D) {
         guard isConnected else { return }
         navigation.stop()
-        let success = bridge.simulateLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-        if success {
-            currentLocation = coordinate
-        } else {
-            errorMessage = "Failed to set location"
+        Task { [weak self] in
+            guard let self else { return }
+            let success = await self.bridge.simulateLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+            await MainActor.run {
+                if success {
+                    self.currentLocation = coordinate
+                    logger.info("Teleport \(coordinate.latitude), \(coordinate.longitude)")
+                } else {
+                    self.errorMessage = "Failed to set location"
+                    logger.error("Teleport failed at \(coordinate.latitude), \(coordinate.longitude)")
+                }
+            }
         }
     }
 
@@ -88,9 +106,15 @@ final class LocationSpoofingService {
     func clearLocation() {
         guard isConnected else { return }
         navigation.stop()
-        let success = bridge.clearSimulatedLocation()
-        if success {
-            currentLocation = nil
+        Task { [weak self] in
+            guard let self else { return }
+            let success = await self.bridge.clearSimulatedLocation()
+            if success {
+                await MainActor.run {
+                    self.currentLocation = nil
+                    logger.info("Cleared simulated location")
+                }
+            }
         }
     }
 
@@ -99,26 +123,32 @@ final class LocationSpoofingService {
     /// Start navigating along a route's coordinates.
     func startNavigation(route: [CLLocationCoordinate2D]) {
         guard isConnected, route.count >= 2 else { return }
+        logger.info("Navigation started: \(route.count) points at \(String(format: "%.0f", speedKmh)) km/h")
 
         // Teleport to start if we don't have a current location
         if currentLocation == nil {
             if let start = route.first {
-                _ = bridge.simulateLocation(latitude: start.latitude, longitude: start.longitude)
                 currentLocation = start
+                Task { [bridge] in _ = await bridge.simulateLocation(latitude: start.latitude, longitude: start.longitude) }
             }
         }
 
         navigation.start(route: route, speedKmh: speedKmh) { [weak self] position in
+            // Called on the main run loop (NavigationEngine's timer). Update the
+            // observable position here and push to the device off the main thread.
+            // Ticks are ~1s apart — far longer than a SET round-trip — so each
+            // tick's Task clears the bridge's I/O gate before the next fires.
             guard let self = self else { return }
-            let success = self.bridge.simulateLocation(latitude: position.latitude, longitude: position.longitude)
-            if success {
-                self.currentLocation = position
+            self.currentLocation = position
+            Task { [bridge = self.bridge] in
+                _ = await bridge.simulateLocation(latitude: position.latitude, longitude: position.longitude)
             }
         }
     }
 
     /// Stop the current navigation.
     func stopNavigation() {
+        if navigation.isNavigating { logger.info("Navigation stopped") }
         navigation.stop()
     }
 

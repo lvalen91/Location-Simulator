@@ -2,14 +2,14 @@ name: LocationSimulator2
 options:
   bundleIdPrefix: com.locationsimulator
   deploymentTarget:
-    macOS: "15.0"
+    macOS: "27.0"
   xcodeVersion: "16.0"
   generateEmptyDirectories: true
 
 settings:
   base:
-    SWIFT_VERSION: "5.0"
-    MACOSX_DEPLOYMENT_TARGET: "15.0"
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "27.0"
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGNING_ALLOWED: "NO"
 
@@ -24,13 +24,29 @@ targets:
           - "**/*.entitlements"
           - "Info.plist"
           - "__pycache__/**"
+          - "vendor/**"
+          - "AppIcon.icon"
+          - "AppIcon.icon/**"
+      # Optional vendored, PyInstaller-frozen pymobiledevice3 + daemon binaries
+      # (produced by Tools/bundle-dependencies.sh). Folder reference so the
+      # vendor/ subdirectory is preserved inside the .app's Resources.
+      - path: Resources/vendor
+        type: folder
+        optional: true
+        buildPhase: resources
+      # Icon Composer (Liquid Glass) app icon — a single opaque .icon package,
+      # compiled via ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.
+      - path: Resources/AppIcon.icon
+        type: file
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.locationsimulator.LocationSimulator2
         INFOPLIST_FILE: Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: Resources/LocationSimulator2.entitlements
         PRODUCT_NAME: "Location Simulator"
-        MARKETING_VERSION: "2.0.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "2.1.0"
+        CURRENT_PROJECT_VERSION: "2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     entitlements:
       path: Resources/LocationSimulator2.entitlements

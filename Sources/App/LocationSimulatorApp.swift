@@ -41,6 +41,16 @@ struct LocationSimulatorApp: App {
                 }
             }
 
+            // Help menu — reveal the timestamped log files in Finder
+            CommandGroup(after: .help) {
+                Button("Reveal Logs in Finder") {
+                    let dir = FileLog.directoryURL
+                    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    NSWorkspace.shared.selectFile(FileLog.shared.currentFileURL.path,
+                                                  inFileViewerRootedAtPath: dir.path)
+                }
+            }
+
             // Navigate menu
             CommandMenu("Navigate") {
                 Button("Start Navigation") {
@@ -103,7 +113,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         guard !isDuplicateInstance else { return }
-        Pymobiledevice3Bridge.shared.stopAllTunnels()
+        // The bridge is an actor, so its teardown is async. A termination
+        // handler can't await; bridge to it with a bounded synchronous wait
+        // (acceptable here — the app is exiting). 2s is ample to send QUIT and
+        // terminate the daemon child.
+        let sem = DispatchSemaphore(value: 0)
+        Task {
+            await Pymobiledevice3Bridge.shared.stopAllTunnels()
+            sem.signal()
+        }
+        _ = sem.wait(timeout: .now() + 2)
         killAllTunneld()
     }
 

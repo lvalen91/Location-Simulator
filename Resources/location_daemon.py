@@ -32,6 +32,7 @@ import sys
 import time
 import traceback
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -39,13 +40,30 @@ from pathlib import Path
 # analysis. Swift only sees the daemon's single-line protocol responses
 # (READY / OK / ERROR …); everything richer goes here.
 # ---------------------------------------------------------------------------
-LOG_DIR = Path.home() / "Library" / "Logs" / "LocationSimulator"
+# Build-independent location so users can grab logs on any build (and from
+# Help > Reveal Logs in the app). One timestamped file per daemon launch.
+LOG_DIR = Path("/tmp/LocationSimulator")
 LOG_DIR.mkdir(parents=True, exist_ok=True)
-LOG_FILE = LOG_DIR / "daemon.log"
+# Owner-only: logs contain the device UDID and spoofed coordinates, and /tmp is
+# world-readable.
+try:
+    os.chmod(LOG_DIR, 0o700)
+except OSError:
+    pass
 
-_handler = logging.handlers.RotatingFileHandler(
-    LOG_FILE, maxBytes=2_000_000, backupCount=3, encoding="utf-8"
-)
+# Prune old daemon logs so /tmp doesn't accumulate (keep most recent 10).
+try:
+    for _old in sorted(LOG_DIR.glob("daemon-*.log"))[:-10]:
+        _old.unlink()
+except OSError:
+    pass
+
+LOG_FILE = LOG_DIR / f"daemon-{datetime.now():%Y-%m-%d_%H-%M-%S}.log"
+_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+try:
+    os.chmod(LOG_FILE, 0o600)
+except OSError:
+    pass
 _handler.setFormatter(logging.Formatter(
     "%(asctime)s.%(msecs)03d [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
@@ -63,6 +81,7 @@ from pymobiledevice3.services.mobile_image_mounter import (
     auto_mount,
     AlreadyMountedError,
     DeveloperModeIsNotEnabledError,
+    PersonalizedImageMounter,
 )
 
 TUNNEL_FILE = "/tmp/pymobiledevice3_tunnel.txt"
@@ -144,6 +163,26 @@ async def ensure_ddi_mounted(tunnel_addr):
     try:
         log.info("ensure_ddi_mounted: connecting RSD at %s:%s", *tunnel_addr)
         async with RemoteServiceDiscoveryService(tunnel_addr) as rsd:
+            # Fast path: if the Personalized DDI is already mounted, skip
+            # auto_mount() entirely. Otherwise auto_mount does a full
+            # personalization round-trip (incl. a network call to Apple) on
+            # every connect and then fails with "already mounted" (~5s wasted).
+            # Use copy_devices() (the `mounter list` backend), NOT
+            # is_image_mounted()/lookup_image — the latter has a blind spot on
+            # iOS 17+ and reports a mounted Personalized DDI as not mounted,
+            # which is exactly what makes auto_mount try (and fail) to re-mount.
+            try:
+                mounter = PersonalizedImageMounter(lockdown=rsd)
+                mounted = await mounter.copy_devices()
+                if any(d.get("IsMounted") and d.get("DiskImageType") in ("Personalized", "Developer")
+                       for d in mounted):
+                    log.info("ensure_ddi_mounted: developer image already mounted; "
+                             "skipping auto_mount (%.2fs)", time.monotonic() - t0)
+                    return None
+            except Exception as probe_err:
+                log.warning("ensure_ddi_mounted: mount-state probe failed (%s); "
+                            "falling back to auto_mount", probe_err)
+
             respond("MOUNTING developer disk image")
             log.info("ensure_ddi_mounted: calling auto_mount (may download DDI on first run)")
             await auto_mount(rsd)
@@ -159,6 +198,15 @@ async def ensure_ddi_mounted(tunnel_addr):
         return ("Developer Mode is not enabled. Enable it on the iPhone in "
                 "Settings > Privacy & Security > Developer Mode, then reboot.")
     except Exception as e:
+        # pymobiledevice3's auto_mount() sometimes fails to detect an
+        # already-mounted personalized DDI and re-attempts the mount, which the
+        # device rejects with "already mounted at /System/Developer". That state
+        # is actually success — the developer services we need are available, so
+        # treat it as mounted and proceed.
+        if "already mounted" in str(e).lower():
+            log.info("ensure_ddi_mounted: DDI already mounted (detected via mount error) elapsed=%.2fs",
+                     time.monotonic() - t0)
+            return None
         log.error("ensure_ddi_mounted: failed after %.2fs\n%s",
                   time.monotonic() - t0, traceback.format_exc())
         return f"DDI mount failed: {e}"
@@ -239,8 +287,12 @@ def main():
     tunnel_path = sys.argv[1] if len(sys.argv) > 1 else TUNNEL_FILE
     udid = sys.argv[2] if len(sys.argv) > 2 else None
     sys.stdout.reconfigure(line_buffering=True)
+    # Redact the full UDID (argv[2]) — the log lives in world-readable /tmp.
+    redacted_argv = list(sys.argv)
+    if len(redacted_argv) > 2 and redacted_argv[2]:
+        redacted_argv[2] = redacted_argv[2][:8] + "…"
     log.info("=" * 60)
-    log.info("location_daemon launched: argv=%s log=%s", sys.argv, LOG_FILE)
+    log.info("location_daemon launched: argv=%s log=%s", redacted_argv, LOG_FILE)
     try:
         asyncio.run(run_daemon(tunnel_path, udid))
     except KeyboardInterrupt:

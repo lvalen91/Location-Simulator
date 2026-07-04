@@ -8,6 +8,12 @@ extension FloatingPoint {
 }
 
 extension CLLocationCoordinate2D {
+    /// A bare `MKMapItem` for this coordinate (no address), suitable as a
+    /// directions source/destination. Uses the macOS 26+ `init(location:address:)`.
+    var mapItem: MKMapItem {
+        MKMapItem(location: CLLocation(latitude: latitude, longitude: longitude), address: nil)
+    }
+
     /// Distance in meters to another coordinate.
     func distance(to other: CLLocationCoordinate2D) -> CLLocationDistance {
         let here = CLLocation(latitude: latitude, longitude: longitude)
@@ -29,57 +35,45 @@ extension CLLocationCoordinate2D {
     }
 
     /// Calculate a single best route to a destination.
+    @MainActor
     func calculateRoute(to destination: CLLocationCoordinate2D,
-                        transportType: MKDirectionsTransportType,
-                        completion: @escaping ([CLLocationCoordinate2D]) -> Void) {
+                        transportType: MKDirectionsTransportType) async -> [CLLocationCoordinate2D] {
         let request = MKDirections.Request()
-        request.source = MKMapItem(placemark: MKPlacemark(coordinate: self))
-        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination))
+        request.source = self.mapItem
+        request.destination = destination.mapItem
         request.transportType = transportType
         request.requestsAlternateRoutes = false
-
-        MKDirections(request: request).calculate { response, _ in
-            DispatchQueue.main.async {
-                if let route = response?.routes.first {
-                    completion(route.polyline.coordinates)
-                } else {
-                    completion([])
-                }
-            }
-        }
+        guard let response = try? await MKDirections(request: request).calculate(),
+              let route = response.routes.first else { return [] }
+        return route.polyline.coordinates
     }
 
     /// Calculate all available routes to a destination.
+    @MainActor
     func calculateAllRoutes(to destination: CLLocationCoordinate2D,
-                            transportType: MKDirectionsTransportType,
-                            completion: @escaping ([MKRoute]) -> Void) {
+                            transportType: MKDirectionsTransportType) async -> [MKRoute] {
         let request = MKDirections.Request()
-        request.source = MKMapItem(placemark: MKPlacemark(coordinate: self))
-        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination))
+        request.source = self.mapItem
+        request.destination = destination.mapItem
         request.transportType = transportType
         request.requestsAlternateRoutes = true
-
-        MKDirections(request: request).calculate { response, _ in
-            DispatchQueue.main.async {
-                completion(response?.routes ?? [])
-            }
-        }
+        return (try? await MKDirections(request: request).calculate())?.routes ?? []
     }
 
-    /// Reverse geocode this coordinate to a place name.
-    func reverseGeocode(completion: @escaping (String) -> Void) {
+    /// Reverse geocode this coordinate to a concise, human-readable place name
+    /// using the modern `MKReverseGeocodingRequest` (macOS 26+). Falls back to
+    /// formatted coordinates if geocoding yields nothing.
+    @MainActor
+    func reverseGeocode() async -> String {
+        let fallback = String(format: "%.4f, %.4f", latitude, longitude)
         let location = CLLocation(latitude: latitude, longitude: longitude)
-        CLGeocoder().reverseGeocodeLocation(location) { placemarks, _ in
-            guard let place = placemarks?.first else {
-                completion(String(format: "%.4f, %.4f", self.latitude, self.longitude))
-                return
-            }
-            var parts: [String] = []
-            if let thoroughfare = place.thoroughfare { parts.append(thoroughfare) }
-            if let city = place.locality { parts.append(city) }
-            if parts.isEmpty, let country = place.country { parts.append(country) }
-            completion(parts.isEmpty ? String(format: "%.4f, %.4f", self.latitude, self.longitude) : parts.joined(separator: ", "))
-        }
+        guard let request = MKReverseGeocodingRequest(location: location) else { return fallback }
+        guard let item = (try? await request.mapItems)?.first else { return fallback }
+
+        if let short = item.address?.shortAddress, !short.isEmpty { return short }
+        if let city = item.addressRepresentations?.cityWithContext, !city.isEmpty { return city }
+        if let name = item.name, !name.isEmpty { return name }
+        return fallback
     }
 }
 

@@ -1,6 +1,23 @@
 import SwiftUI
 import MapKit
 
+// MARK: - Shared surface styling (one consistent treatment app-wide)
+
+extension View {
+    /// A surface that floats over the map (panels, popovers, controls):
+    /// Liquid Glass with a single standard corner radius.
+    func floatingGlass(cornerRadius: CGFloat = 12) -> some View {
+        glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
+    }
+
+    /// A content row/pill inside a surface or the sidebar: one subtle,
+    /// light/dark-adaptive inset fill used everywhere (replaces ad-hoc
+    /// `Color.black.opacity(...)` backgrounds).
+    func insetRow(cornerRadius: CGFloat = 8) -> some View {
+        background(.quaternary, in: .rect(cornerRadius: cornerRadius))
+    }
+}
+
 /// Main content view using NavigationSplitView — Maps.app layout.
 /// Sidebar contains route search, devices, saved/recent routes.
 /// Detail area is a full-bleed MKMapView with floating controls.
@@ -14,7 +31,9 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 400)
         } detail: {
             ZStack(alignment: .bottom) {
-                // Full-bleed map
+                // Full-bleed map. (No backgroundExtensionEffect: it mirrors the
+                // map's edge into the sidebar, which looks natural for a photo
+                // but reads as a reflected map sliver for live map tiles.)
                 MapViewRepresentable(appState: appState)
                     .ignoresSafeArea()
 
@@ -39,7 +58,7 @@ struct ContentView: View {
                                 .font(.callout)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
-                                .background(.ultraThinMaterial, in: Capsule())
+                                .glassEffect(.regular, in: .capsule)
                             Spacer()
                         }
                         .padding(.top, 12)
@@ -63,7 +82,7 @@ struct ContentView: View {
                             .controlSize(.small)
                         }
                         .padding(12)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                        .floatingGlass()
                         .padding(.bottom, 80)
                     }
                 }
@@ -91,6 +110,9 @@ struct ContentView: View {
                 .help("Stop spoofing and restore real GPS")
             }
 
+            // Separate the destructive Clear action into its own glass group.
+            ToolbarSpacer(.fixed)
+
             ToolbarItem(placement: .automatic) {
                 Button(action: { appState.acquireCurrentLocation() }) {
                     Label("My Location", systemImage: "location.fill")
@@ -110,6 +132,9 @@ struct ContentView: View {
                     .help("Simulated movement speed")
             }
         }
+        // Hide the toolbar's chrome bar + separator so the Liquid Glass toolbar
+        // items float directly over the map (no frosted bar behind them).
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .navigationTitle(navigationTitle)
         .animation(.easeInOut(duration: 0.18), value: appState.selectedPlacesCategory)
     }

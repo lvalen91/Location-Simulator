@@ -20,3 +20,7 @@ Package.resolved
 # Misc
 *.swp
 *~
+
+# Vendored, PyInstaller-frozen binaries (regenerated per release via
+# Tools/bundle-dependencies.sh — large, not committed)
+Resources/vendor/

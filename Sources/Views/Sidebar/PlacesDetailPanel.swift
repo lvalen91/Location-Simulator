@@ -19,12 +19,7 @@ struct PlacesDetailPanel: View {
         .padding(12)
         .frame(width: 320)
         .fixedSize(horizontal: false, vertical: true)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(.white.opacity(0.06), lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.25), radius: 14, x: 0, y: 4)
+        .floatingGlass()
     }
 
     // MARK: - Header (matches Apple Maps: bold title, plain X button, no icon)
@@ -84,9 +79,13 @@ struct PlacesDetailPanel: View {
                         PinnedRow(pin: pin, appState: appState,
                                   renamingID: $renamingID, renameText: $renameText)
                     }
+                    .reorderable()
                     clearButton(title: "Clear Pins") {
                         appState.clearPinnedLocations()
                     }
+                }
+                .reorderContainer(for: PinnedLocation.self) { difference in
+                    appState.movePinnedLocations(difference)
                 }
             }
         }
@@ -105,6 +104,10 @@ struct PlacesDetailPanel: View {
                         SavedRoutePanelRow(route: route, appState: appState,
                                            renamingID: $renamingID, renameText: $renameText)
                     }
+                    .reorderable()
+                }
+                .reorderContainer(for: SavedRoute.self) { difference in
+                    appState.moveSavedRoutes(difference)
                 }
             }
         }
@@ -114,7 +117,9 @@ struct PlacesDetailPanel: View {
 
     private var devicesList: some View {
         Group {
-            if appState.devices.isEmpty {
+            if !appState.pymobiledevice3Installed {
+                dependencyOffer
+            } else if appState.devices.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     if appState.isScanning {
                         HStack(spacing: 8) {
@@ -138,6 +143,66 @@ struct PlacesDetailPanel: View {
                 }
             }
         }
+    }
+
+    // MARK: - Dependency offer (pymobiledevice3 missing)
+
+    @ViewBuilder
+    private var dependencyOffer: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.yellow)
+                Text("pymobiledevice3 required")
+                    .font(.callout.weight(.semibold))
+            }
+            Text("Location Simulator needs the pymobiledevice3 tool to talk to iOS 17+ devices. It isn't installed yet.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if appState.isInstallingDependency {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Installing…").font(.caption)
+                }
+                installLogView
+            } else if appState.homebrewAvailable {
+                Button(action: { appState.installDependency() }) {
+                    Label("Install with Homebrew", systemImage: "arrow.down.circle")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                Text("Runs: brew install pipx && pipx install pymobiledevice3")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                if !appState.dependencyInstallLog.isEmpty { installLogView }
+            } else {
+                Text("Homebrew isn't installed. Get it from brew.sh, then reopen — or install manually:")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("pipx install pymobiledevice3")
+                    .font(.caption2.monospaced())
+                    .textSelection(.enabled)
+                if !appState.dependencyInstallLog.isEmpty { installLogView }
+            }
+            refreshButton
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var installLogView: some View {
+        ScrollView {
+            Text(appState.dependencyInstallLog)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 140)
+        .padding(6)
+        .insetRow()
     }
 
     private var refreshButton: some View {
@@ -273,7 +338,7 @@ private struct PinnedRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+        .insetRow()
         .contentShape(Rectangle())
         .onTapGesture {
             appState.teleportToPin(pin)
@@ -346,7 +411,7 @@ private struct SavedRoutePanelRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+        .insetRow()
         .contentShape(Rectangle())
         .onTapGesture {
             appState.startNavigationFromSaved(route)
@@ -388,7 +453,7 @@ private struct RecentRoutePanelRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+        .insetRow()
         .contentShape(Rectangle())
         .onTapGesture {
             appState.startNavigationFromRecent(route)
@@ -447,7 +512,7 @@ private struct DeviceRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+        .insetRow()
         .contentShape(Rectangle())
         .onTapGesture {
             if isConnected {

@@ -77,8 +77,7 @@ struct SpeedControlView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+        .floatingGlass()
     }
 }
 

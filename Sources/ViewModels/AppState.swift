@@ -1,6 +1,7 @@
 import Foundation
 import CoreLocation
 import MapKit
+import SwiftUI
 
 // MARK: - RouteWaypoint
 
@@ -71,19 +72,36 @@ enum PlacesCategory: String, CaseIterable, Identifiable, Hashable {
 
 // MARK: - LocationDelegate
 
-private class LocationDelegate: NSObject, CLLocationManagerDelegate {
+@MainActor
+private final class LocationDelegate: NSObject, @preconcurrency CLLocationManagerDelegate {
     weak var appState: AppState?
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        guard let appState, manager.authorizationStatus == .authorizedAlways else { return }
-        if let loc = manager.location?.coordinate {
-            appState.teleportTo(loc)
+        switch manager.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            // A fresh grant arrives here; ask for an actual one-shot fix rather
+            // than reading the (usually nil) cached `manager.location`.
+            manager.requestLocation()
+        case .denied, .restricted:
+            appState?.statusMessage = "Location access denied — enable in System Settings → Privacy"
+        default:
+            break
         }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let coordinate = locations.last?.coordinate else { return }
+        appState?.teleportTo(coordinate)
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        appState?.statusMessage = "Unable to determine current location"
     }
 }
 
 // MARK: - AppState
 
+@MainActor
 @Observable
 final class AppState {
     // MARK: - Services
@@ -110,6 +128,12 @@ final class AppState {
 
     // MARK: - Places Sidebar
     var selectedPlacesCategory: PlacesCategory?
+
+    // MARK: - Dependency State
+    var pymobiledevice3Installed = true   // refreshed on every scan
+    var homebrewAvailable = false
+    var isInstallingDependency = false
+    var dependencyInstallLog = ""
 
     // MARK: - Map State
     var mapRegion = MKCoordinateRegion(
@@ -142,24 +166,17 @@ final class AppState {
     // MARK: - Mac Location
 
     func acquireCurrentLocation() {
-        let status = locationManager.authorizationStatus
-        switch status {
-        case .authorizedAlways:
-            if let loc = locationManager.location?.coordinate {
-                teleportTo(loc)
-            } else {
-                statusMessage = "Unable to determine current location"
-            }
+        switch locationManager.authorizationStatus {
         case .notDetermined:
+            // The grant callback (locationManagerDidChangeAuthorization) fires
+            // requestLocation() once the user responds.
             locationManager.requestWhenInUseAuthorization()
+        case .authorizedWhenInUse, .authorizedAlways:
+            locationManager.requestLocation()
         case .denied, .restricted:
             statusMessage = "Location access denied — enable in System Settings → Privacy"
-        default:
-            if let loc = locationManager.location?.coordinate {
-                teleportTo(loc)
-            } else {
-                statusMessage = "Unable to determine current location"
-            }
+        @unknown default:
+            locationManager.requestLocation()
         }
     }
 
@@ -167,33 +184,62 @@ final class AppState {
 
     func scanForDevices() {
         isScanning = true
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let found = Pymobiledevice3Bridge.shared.discoverDevices()
-            DispatchQueue.main.async {
-                let previous = self?.devices ?? []
-                self?.devices = found
-                self?.isScanning = false
+        Task { [weak self] in
+            let bridge = Pymobiledevice3Bridge.shared
+            // Re-resolve so a just-installed pymobiledevice3 is picked up.
+            let available = await bridge.refreshAvailability()
+            let brew = bridge.homebrewPath() != nil
+            let found = available ? await bridge.discoverDevices() : []
+            await MainActor.run {
+                guard let self else { return }
+                self.pymobiledevice3Installed = available
+                self.homebrewAvailable = brew
+                let previous = self.devices
+                self.devices = found
+                self.isScanning = false
 
-                if let sel = self?.selectedDevice, !found.contains(where: { $0.id == sel.id }) {
-                    self?.spoofing.disconnect()
-                    self?.selectedDevice = nil
+                if let sel = self.selectedDevice, !found.contains(where: { $0.id == sel.id }) {
+                    self.spoofing.disconnect()
+                    self.selectedDevice = nil
                 }
 
                 let newDevices = found.filter { d in !previous.contains(where: { $0.id == d.id }) }
                 if !newDevices.isEmpty {
-                    self?.statusMessage = "\(newDevices.count) device\(newDevices.count > 1 ? "s" : "") detected"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                        if self?.statusMessage?.contains("detected") == true {
-                            self?.statusMessage = nil
-                        }
+                    self.statusMessage = "\(newDevices.count) device\(newDevices.count > 1 ? "s" : "") detected"
+                    Task { @MainActor [weak self] in
+                        try? await Task.sleep(for: .seconds(3))
+                        if self?.statusMessage?.contains("detected") == true { self?.statusMessage = nil }
                     }
                 }
             }
         }
     }
 
+    /// Install pymobiledevice3 via Homebrew, streaming progress, then re-scan.
+    func installDependency() {
+        guard !isInstallingDependency, !pymobiledevice3Installed else { return }
+        isInstallingDependency = true
+        dependencyInstallLog = "Starting install…\n"
+        Task {
+            let ok = await Pymobiledevice3Bridge.shared.installViaHomebrew { line in
+                Task { @MainActor in self.dependencyInstallLog += line + "\n" }
+            }
+            self.isInstallingDependency = false
+            self.pymobiledevice3Installed = ok
+            if ok {
+                self.statusMessage = "pymobiledevice3 installed"
+                self.scanForDevices()
+            } else {
+                self.statusMessage = "Install failed — see log"
+            }
+        }
+    }
+
     func connectDevice(_ device: DeviceInfo) {
-        if selectedDevice != nil { spoofing.disconnect() }
+        // Ignore taps while a connect is already in flight — prevents stacking
+        // duplicate daemon launches from rapid clicks.
+        guard !spoofing.isConnecting else { return }
+        if let current = selectedDevice, current.id != device.id { spoofing.disconnect() }
         selectedDevice = device
         spoofing.connect(udid: device.id)
     }
@@ -230,10 +276,11 @@ final class AppState {
         let stopID = UUID()
         let coords = String(format: "%.4f, %.4f", coordinate.latitude, coordinate.longitude)
         waypoints.insert(RouteWaypoint(id: stopID, text: coords, name: coords, coordinate: coordinate), at: insertIdx)
-        coordinate.reverseGeocode { [weak self] name in
-            guard let self, let i = waypoints.firstIndex(where: { $0.id == stopID }) else { return }
-            waypoints[i].text = name
-            waypoints[i].name = name
+        Task { [weak self] in
+            let name = await coordinate.reverseGeocode()
+            guard let self, let i = self.waypoints.firstIndex(where: { $0.id == stopID }) else { return }
+            self.waypoints[i].text = name
+            self.waypoints[i].name = name
         }
         tryCalculateRoutes()
     }
@@ -274,54 +321,49 @@ final class AppState {
         statusMessage = "Calculating routes…"
 
         if coords.count == 2 {
-            coords[0].calculateAllRoutes(to: coords[1], transportType: spoofing.transportMode.mkTransportType) { [weak self] routes in
-                self?.calculatedRoutes = routes.map { RouteResult(legs: [$0]) }
-                self?.selectedRouteIndex = routes.isEmpty ? nil : 0
-                self?.statusMessage = routes.isEmpty ? "No routes found" : nil
+            let origin = coords[0], destination = coords[1]
+            let transportType = spoofing.transportMode.mkTransportType
+            Task { [weak self] in
+                guard let self else { return }
+                let routes = await origin.calculateAllRoutes(to: destination, transportType: transportType)
+                self.calculatedRoutes = routes.map { RouteResult(legs: [$0]) }
+                self.selectedRouteIndex = routes.isEmpty ? nil : 0
+                self.statusMessage = routes.isEmpty ? "No routes found" : nil
             }
         } else {
-            calculateChainedLegs(coords: coords, transportType: spoofing.transportMode.mkTransportType) { [weak self] legs in
+            let transportType = spoofing.transportMode.mkTransportType
+            Task { [weak self] in
+                guard let self else { return }
+                let legs = await self.calculateChainedLegs(coords: coords, transportType: transportType)
                 if let legs {
-                    self?.calculatedRoutes = [RouteResult(legs: legs)]
-                    self?.selectedRouteIndex = 0
-                    self?.statusMessage = nil
+                    self.calculatedRoutes = [RouteResult(legs: legs)]
+                    self.selectedRouteIndex = 0
+                    self.statusMessage = nil
                 } else {
-                    self?.calculatedRoutes = []
-                    self?.selectedRouteIndex = nil
-                    self?.statusMessage = "No route found"
+                    self.calculatedRoutes = []
+                    self.selectedRouteIndex = nil
+                    self.statusMessage = "No route found"
                 }
             }
         }
     }
 
     private func calculateChainedLegs(coords: [CLLocationCoordinate2D],
-                                       transportType: MKDirectionsTransportType,
-                                       completion: @escaping ([MKRoute]?) -> Void) {
+                                       transportType: MKDirectionsTransportType) async -> [MKRoute]? {
         var legs: [MKRoute] = []
-
-        func nextLeg(_ index: Int) {
-            guard index < coords.count - 1 else {
-                completion(legs)
-                return
-            }
+        for index in 0..<(coords.count - 1) {
             let request = MKDirections.Request()
-            request.source = MKMapItem(placemark: MKPlacemark(coordinate: coords[index]))
-            request.destination = MKMapItem(placemark: MKPlacemark(coordinate: coords[index + 1]))
+            request.source = coords[index].mapItem
+            request.destination = coords[index + 1].mapItem
             request.transportType = transportType
             request.requestsAlternateRoutes = false
-            MKDirections(request: request).calculate { response, _ in
-                DispatchQueue.main.async {
-                    guard let route = response?.routes.first else {
-                        completion(nil)
-                        return
-                    }
-                    legs.append(route)
-                    nextLeg(index + 1)
-                }
+            guard let response = try? await MKDirections(request: request).calculate(),
+                  let route = response.routes.first else {
+                return nil
             }
+            legs.append(route)
         }
-
-        nextLeg(0)
+        return legs
     }
 
     func clearRoutes() {
@@ -387,11 +429,13 @@ final class AppState {
     func setRouteFrom(_ coordinate: CLLocationCoordinate2D) {
         guard !waypoints.isEmpty else { return }
         waypoints[0].coordinate = coordinate
-        coordinate.reverseGeocode { [weak self] name in
-            guard let self, !waypoints.isEmpty else { return }
-            waypoints[0].text = name
-            waypoints[0].name = name
-            tryCalculateRoutes()
+        let wpID = waypoints[0].id
+        Task { [weak self] in
+            let name = await coordinate.reverseGeocode()
+            guard let self, let i = self.waypoints.firstIndex(where: { $0.id == wpID }) else { return }
+            self.waypoints[i].text = name
+            self.waypoints[i].name = name
+            self.tryCalculateRoutes()
         }
     }
 
@@ -399,11 +443,13 @@ final class AppState {
         guard !waypoints.isEmpty else { return }
         let idx = waypoints.count - 1
         waypoints[idx].coordinate = coordinate
-        coordinate.reverseGeocode { [weak self] name in
-            guard let self, idx < waypoints.count else { return }
-            waypoints[idx].text = name
-            waypoints[idx].name = name
-            tryCalculateRoutes()
+        let wpID = waypoints[idx].id
+        Task { [weak self] in
+            let name = await coordinate.reverseGeocode()
+            guard let self, let i = self.waypoints.firstIndex(where: { $0.id == wpID }) else { return }
+            self.waypoints[i].text = name
+            self.waypoints[i].name = name
+            self.tryCalculateRoutes()
         }
     }
 
@@ -500,19 +546,20 @@ final class AppState {
     // MARK: - Pinned Locations
 
     func pinLocation(_ coordinate: CLLocationCoordinate2D, name: String = "") {
-        var pin = PinnedLocation(name: name, coordinate: coordinate)
+        let pin = PinnedLocation(name: name, coordinate: coordinate)
         pinnedLocations.insert(pin, at: 0)
         persistPinnedLocations()
 
         if name.isEmpty {
             let pinID = pin.id
-            coordinate.reverseGeocode { [weak self] resolved in
+            Task { [weak self] in
+                let resolved = await coordinate.reverseGeocode()
                 guard let self,
-                      let idx = pinnedLocations.firstIndex(where: { $0.id == pinID }),
-                      pinnedLocations[idx].name.isEmpty
+                      let idx = self.pinnedLocations.firstIndex(where: { $0.id == pinID }),
+                      self.pinnedLocations[idx].name.isEmpty
                 else { return }
-                pinnedLocations[idx].name = resolved
-                persistPinnedLocations()
+                self.pinnedLocations[idx].name = resolved
+                self.persistPinnedLocations()
             }
         }
     }
@@ -547,5 +594,41 @@ final class AppState {
         guard let data = UserDefaults.standard.data(forKey: Self.pinnedLocationsKey),
               let pins = try? JSONDecoder().decode([PinnedLocation].self, from: data) else { return }
         pinnedLocations = pins
+    }
+
+    // MARK: - Reordering (macOS 26+ reorderable)
+
+    /// Apply a SwiftUI reorder difference (drag-to-reorder) to saved routes.
+    func moveSavedRoutes(_ difference: ReorderDifference<UUID, ReorderableSingleCollectionIdentifier>) {
+        savedRoutes = Self.applyReorder(difference, to: savedRoutes)
+        persistSavedRoutes()
+    }
+
+    /// Apply a SwiftUI reorder difference (drag-to-reorder) to pinned locations.
+    func movePinnedLocations(_ difference: ReorderDifference<UUID, ReorderableSingleCollectionIdentifier>) {
+        pinnedLocations = Self.applyReorder(difference, to: pinnedLocations)
+        persistPinnedLocations()
+    }
+
+    /// Reposition the dragged items (identified by `sources`) ahead of the
+    /// destination item, or at the end. Shared by the reorderable lists.
+    private static func applyReorder<T: Identifiable>(
+        _ difference: ReorderDifference<UUID, ReorderableSingleCollectionIdentifier>,
+        to items: [T]
+    ) -> [T] where T.ID == UUID {
+        let moving = items.filter { difference.sources.contains($0.id) }
+        guard !moving.isEmpty else { return items }
+        var result = items.filter { !difference.sources.contains($0.id) }
+        switch difference.destination.position {
+        case .before(let id):
+            if let idx = result.firstIndex(where: { $0.id == id }) {
+                result.insert(contentsOf: moving, at: idx)
+            } else {
+                result.append(contentsOf: moving)
+            }
+        case .end:
+            result.append(contentsOf: moving)
+        }
+        return result
     }
 }
