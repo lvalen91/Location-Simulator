@@ -916,7 +916,10 @@ actor Pymobiledevice3Bridge {
     /// Launch tunneld as root via an osascript admin prompt. Returns true if the
     /// osascript process exited 0 (the admin prompt was accepted).
     private nonisolated static func launchTunneld(binary: String) -> Bool {
-        let script = "do shell script \"\(binary) remote tunneld &> /dev/null & echo $!\" with administrator privileges"
+        // The bundle path contains a space ("Location Simulator.app") — without
+        // quoting, sh runs /Applications/Location and the launch silently fails
+        // (echo $! still makes osascript exit 0).
+        let script = "do shell script \"'\(binary)' remote tunneld &> /dev/null & echo $!\" with administrator privileges"
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         proc.arguments = ["-e", script]
