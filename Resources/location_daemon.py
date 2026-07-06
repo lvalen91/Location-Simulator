@@ -172,8 +172,14 @@ async def ensure_ddi_mounted(tunnel_addr):
             # iOS 17+ and reports a mounted Personalized DDI as not mounted,
             # which is exactly what makes auto_mount try (and fail) to re-mount.
             try:
-                mounter = PersonalizedImageMounter(lockdown=rsd)
-                mounted = await mounter.copy_devices()
+                # Must close this connection before falling through to auto_mount()
+                # below — auto_mount() opens its own connection to the same
+                # com.apple.mobile.mobile_image_mounter lockdown service, and if
+                # this probe's connection is left open, that second connection
+                # attempt hangs forever (no exception, no timeout) waiting for a
+                # service slot that never frees up.
+                async with PersonalizedImageMounter(lockdown=rsd) as mounter:
+                    mounted = await mounter.copy_devices()
                 if any(d.get("IsMounted") and d.get("DiskImageType") in ("Personalized", "Developer")
                        for d in mounted):
                     log.info("ensure_ddi_mounted: developer image already mounted; "
